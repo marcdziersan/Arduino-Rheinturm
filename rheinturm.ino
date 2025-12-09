@@ -1,206 +1,296 @@
-/* Rheinturmuhr mit NeoPixel WS2812 LED-Streifen */
+#include <Adafruit_NeoPixel.h> // Bibliothek für NeoPixel-LEDs
+#include <Wire.h> // I2C-Bibliothek für die RTC
+#include <RtcDS1307.h> // RTC-Bibliothek (Makuna)
 
-#include <Adafruit_NeoPixel.h>
-#include <Wire.h>
-#include <RtcDS1307.h>
-RtcDS1307<TwoWire> Rtc(Wire);
+RtcDS1307<TwoWire> Rtc(Wire); // RTC-Objekt, das den I2C-Bus verwendet
 
-#define PIN        6            // Pin, an dem der Datenpin der Neopixel angeschlossen ist
-#define NUMPIXELS 51            // Anzahl der LEDs 
+// -------------------------
+// LED-Konfiguration
+// -------------------------
+#define LED_PIN 6 // Datenpin, an den der NeoPixel-Streifen angeschlossen ist
+#define LED_COUNT 51 // Anzahl der LEDs im Streifen
 
-int blinkgeschwindigkeit = 1000;    // hier kann man die roten Trenn-LEDs blinken lassen – wenn man das nicht will, kann man die Variable auf 1 setzen 
+// NeoPixel-Objekt: Anzahl LEDs, Pin, Farbordnung + Protokollfrequenz
+Adafruit_NeoPixel pixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-int theLEDsAus[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0};
-int theLEDs[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0};
+// Helligkeit der LEDs (0–255)
+const uint8_t BRIGHTNESS = 50; // 50 ist etwa 1/5 der maximalen Helligkeit
 
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);   // Anlegen des Neopixel-Objektes
+// Blinkgeschwindigkeit für die roten Trenner-LEDs in Millisekunden
+// Kleinere Werte → schnelleres Blinken, 0 oder 1 → faktisch immer an
+int blinkSpeedMs = 1000;
 
-/* ***** ***** ***** ***** SETUP ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
-void setup() {
-  pixels.begin();               // Initialisierung des Neopixel Objektes
-  pixels.setBrightness(50);     // Set BRIGHTNESS to about 1/5 (max = 255)
-  rtcInit();                    // Real Time Clock Initialisierung
-}
+// -------------------------
+// Layout des LED-Streifens
+// -------------------------
+//
+// Wir teilen die 51 LEDs in Segmente ein:
+//
+// - 0 bis 9 : Sekunden-Einer (10 LEDs)
+// - 10 bis 15 : Sekunden-Zehner (6 LEDs)
+// - 16 : Trenner Sekunden/Minuten (rote LED)
+// - 17 bis 26 : Minuten-Einer (10 LEDs)
+// - 27 bis 32 : Minuten-Zehner (6 LEDs)
+// - 33 : Trenner Minuten/Stunden (rote LED)
+// - 34 bis 43 : Stunden-Einer (10 LEDs)
+// - 44 bis 50 : Stunden-Zehner (7 LEDs, gebraucht werden max. 3)
+//
+// Das ist kein 1:1-Layout des Originalprojekts, aber funktional sehr ähnlich.
 
-/* ***** ***** ***** ***** LOOP ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
-void loop() {
-  if (!Rtc.IsDateTimeValid())  {
-    if (Rtc.LastError() != 0)    {
-      // we have a communications error
-      // see https://www.arduino.cc/en/Reference/WireEndTransmission for
-      // what the number means
-      Serial.print("RTC communications error = ");
-      Serial.println(Rtc.LastError());
-    } else {
-      // Common Causes:
-      //    1) the battery on the device is low or even missing and the power line was disconnected
-      Serial.println("RTC lost confidence in the DateTime!");
-    }
-  }
+const uint8_t SEC_ONES_START = 0;
+const uint8_t SEC_ONES_HEIGHT = 10;
 
-  RtcDateTime now = Rtc.GetDateTime();
+const uint8_t SEC_TENS_START = 10;
+const uint8_t SEC_TENS_HEIGHT = 6;
 
-  printDateTime(now); Serial.print(" ");
-  updateTime(now);
-  showTime();
-  Serial.println();
+const uint8_t SEP_SEC_MIN_IDX = 16; // rote Trenner-LED zwischen Sekunden und Minuten
 
-  delay(10); 
-}
+const uint8_t MIN_ONES_START = 17;
+const uint8_t MIN_ONES_HEIGHT = 10;
 
-void updateTime(const RtcDateTime& dt)
+const uint8_t MIN_TENS_START = 27;
+const uint8_t MIN_TENS_HEIGHT = 6;
+
+const uint8_t SEP_MIN_HOUR_IDX = 33; // rote Trenner-LED zwischen Minuten und Stunden
+
+const uint8_t HOUR_ONES_START = 34;
+const uint8_t HOUR_ONES_HEIGHT = 10;
+
+const uint8_t HOUR_TENS_START = 44;
+const uint8_t HOUR_TENS_HEIGHT = 7; // reicht für 0–2
+
+// -------------------------
+// Hilfsfunktionen: LEDs
+// -------------------------
+
+// Setzt alle LEDs erstmal auf "aus"
+void clearStrip()
 {
-  /* Reset aller LED Einträge */
-  for (int i = 0; i < NUMPIXELS; i++) {
-    theLEDs[i] = theLEDsAus[i];
-  }
-
-  /* Sekunden Einer */
-  for (int i = 0; i < dt.Second() % 10; i++) {
-    theLEDs[i] = 1;
-  }
-  /* Sekunden Zehner */
-  for (int i = 0; i < dt.Second() / 10; i++) {
-    theLEDs[15 - i] = 1;
-  }
-
-  /* Minuten Einer */
-  for (int i = 0; i < dt.Minute() % 10; i++) {
-    theLEDs[19 + i] = 1;
-  }
-  /* Minuten Zehner */
-  for (int i = 0; i < dt.Minute() / 10; i++) {
-    theLEDs[34 - i] = 1;
-  }
-
-  /* Stunden Einer */
-  for (int i = 0; i < dt.Hour() % 10; i++) {
-    theLEDs[38 + i] = 1;
-  }
-
-  /* Stunden Zehner */
-  for (int i = 0; i < dt.Hour() / 10; i++) {
-    theLEDs[50 - i] = 1;
-  }
+pixels.clear(); // interne Puffer der NeoPixel-Bibliothek werden auf schwarz gesetzt
 }
 
-void showTime() {
-  
-  pixels.clear();               // Schalte alle LEDs aus
-  
-  for (int i = 0; i < NUMPIXELS; i++) {
-    switch (theLEDs[i]) {
-      case 0:
-        Serial.print("-");
-        pixels.setPixelColor(i, pixels.Color(0, 0, 0));
-        break;
-      case 1:
-        Serial.print("*");
-        pixels.setPixelColor(i, pixels.Color(100, 100, 100));
-        break;
-      case 2:
-        Serial.print(" ");
-        break;
-      case 3:
-        if (millis() % blinkgeschwindigkeit < blinkgeschwindigkeit/2) {
-          Serial.print("|");
-          pixels.setPixelColor(i, pixels.Color(0, 0, 0));
-        } else {
-          Serial.print("–");
-          pixels.setPixelColor(i, pixels.Color(100, 0, 0));
-        }
-        break;
-    }
-  }
-  pixels.show();   // Sende die Farbinformationen an den LED-Streifen
+// Zeichnet eine "Spalte" für eine Dezimalstelle (0–9)
+// startIndex: unterste LED der Spalte
+// maxHeight : maximale Anzahl LEDs, die diese Spalte besitzt
+// value : Wert der Ziffer (z.B. 7 → 7 LEDs leuchten)
+void drawDigitColumn(uint8_t startIndex, uint8_t maxHeight, uint8_t value)
+{
+// Begrenzen des Wertes auf die maximal mögliche Höhe
+if (value > maxHeight) {
+value = maxHeight;
 }
 
-/* ***** ***** ***** ***** Methoden für die Real Time Clock ***** ***** ***** ***** ***** ***** */
-
-void rtcInit() {
-  Serial.begin(115200);
-
-  Serial.print("compiled: ");
-  Serial.print(__DATE__);
-  Serial.println(__TIME__);
-
-  //--------RTC SETUP ------------
-  // if you are using ESP-01 then uncomment the line below to reset the pins to
-  // the available pins for SDA, SCL
-  // Wire.begin(0, 2); // due to limited pins, use pin 0 and 2 for SDA, SCL
-
-  Rtc.Begin();
-
-  RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
-  printDateTime(compiled);
-  Serial.println();
-
-  if (!Rtc.IsDateTimeValid())
-  {
-    if (Rtc.LastError() != 0)
-    {
-      // we have a communications error
-      // see https://www.arduino.cc/en/Reference/WireEndTransmission for
-      // what the number means
-      Serial.print("RTC communications error = ");
-      Serial.println(Rtc.LastError());
-    }
-    else
-    {
-      // Common Causes:
-      //    1) first time you ran and the device wasn't running yet
-      //    2) the battery on the device is low or even missing
-
-      Serial.println("RTC lost confidence in the DateTime!");
-      // following line sets the RTC to the date & time this sketch was compiled
-      // it will also reset the valid flag internally unless the Rtc device is
-      // having an issue
-
-      Rtc.SetDateTime(compiled);
-    }
-  }
-
-  if (!Rtc.GetIsRunning())
-  {
-    Serial.println("RTC was not actively running, starting now");
-    Rtc.SetIsRunning(true);
-  }
-
-  RtcDateTime now = Rtc.GetDateTime();
-  if (now < compiled)
-  {
-    Serial.println("RTC is older than compile time!  (Updating DateTime)");
-    Rtc.SetDateTime(compiled);
-  }
-  else if (now > compiled)
-  {
-    Serial.println("RTC is newer than compile time. (this is expected)");
-
-  }
-  else if (now == compiled)
-  {
-    Serial.println("RTC is the same as compile time! (not expected but all is fine)");
-  }
-
-  // never assume the Rtc was last configured by you, so
-  // just clear them to your needed state
-  Rtc.SetSquareWavePin(DS1307SquareWaveOut_Low);
+// Alle LEDs der Spalte zunächst ausschalten
+for (uint8_t i = 0; i < maxHeight; i++) {
+uint8_t idx = startIndex + i;
+if (idx < LED_COUNT) {
+pixels.setPixelColor(idx, pixels.Color(0, 0, 0));
+}
 }
 
-#define countof(a) (sizeof(a) / sizeof(a[0]))
+// Von unten nach oben "value" LEDs weiß einschalten
+for (uint8_t i = 0; i < value; i++) {
+uint8_t idx = startIndex + i;
+if (idx < LED_COUNT) {
+// Weißes Licht (RGB: 100, 100, 100)
+pixels.setPixelColor(idx, pixels.Color(100, 100, 100));
+}
+}
+}
 
+// Zeichnet eine rote Trenner-LED, optional blinkend
+// index : Position der Trenner-LED
+// blinkOnMs : Blinkperiode, z.B. 1000ms → 0,5s an, 0,5s aus
+void drawSeparator(uint8_t index, int blinkOnMs)
+{
+if (index >= LED_COUNT) return; // Sicherheitsabfrage
+
+if (blinkOnMs <= 1) {
+// Blinken deaktiviert: LED dauerhaft rot
+pixels.setPixelColor(index, pixels.Color(100, 0, 0));
+return;
+}
+
+// Aktuelle Zeit seit Start (Millisekunden)
+unsigned long now = millis();
+
+// Einfache Rechteck-Blinklogik:
+// In der ersten Hälfte des Intervalls → aus,
+// in der zweiten Hälfte → rot an
+if ((now % blinkOnMs) < (unsigned long)(blinkOnMs / 2)) {
+// Phase 1: LED aus
+pixels.setPixelColor(index, pixels.Color(0, 0, 0));
+} else {
+// Phase 2: LED rot
+pixels.setPixelColor(index, pixels.Color(100, 0, 0));
+}
+}
+
+// -------------------------
+// Hilfsfunktionen: RTC
+// -------------------------
+
+// Gibt Datum und Uhrzeit auf der seriellen Schnittstelle aus
 void printDateTime(const RtcDateTime& dt)
 {
-  char datestring[20];
+char buf[20]; // Puffer für Datum/Zeit-String
 
-  snprintf_P(datestring,
-    countof(datestring),
-    PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
-    dt.Month(),
-    dt.Day(),
-    dt.Year(),
-    dt.Hour(),
-    dt.Minute(),
-    dt.Second() );
-  Serial.print(datestring);
+// Formatiert als "MM/TT/JJJJ hh:mm:ss"
+snprintf_P(
+buf,
+sizeof(buf),
+PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+dt.Month(),
+dt.Day(),
+dt.Year(),
+dt.Hour(),
+dt.Minute(),
+dt.Second()
+);
+
+Serial.print(buf);
+}
+
+// Initialisiert die RTC und stellt sicher, dass sie eine gültige Zeit hat
+void initRtc()
+{
+Serial.begin(115200); // Serielle Schnittstelle zum Debuggen
+Wire.begin(); // I2C starten
+
+Serial.print("Sketch compiled: ");
+Serial.print(DATE); // Kompilierdatum
+Serial.print(" ");
+Serial.println(TIME); // Kompilierzeit
+
+Rtc.Begin(); // RTC-Bibliothek starten
+
+// Zeitobjekt mit Kompilierzeit erstellen
+RtcDateTime compiled(DATE, TIME);
+
+// Prüfen, ob die RTC eine gültige Zeit kennt
+if (!Rtc.IsDateTimeValid()) {
+if (Rtc.LastError() != 0) {
+// Wenn LastError != 0 ist, liegt ein I2C-Kommunikationsproblem vor
+Serial.print("RTC communications error = ");
+Serial.println(Rtc.LastError());
+} else {
+// Häufige Ursache: Batterie fehlt oder war leer
+Serial.println("RTC has invalid DateTime, setting to compile time.");
+Rtc.SetDateTime(compiled); // RTC auf Kompilierzeit setzen
+}
+}
+
+// Falls die RTC noch nicht "läuft", jetzt starten
+if (!Rtc.GetIsRunning()) {
+Serial.println("RTC was not running, starting now.");
+Rtc.SetIsRunning(true);
+}
+
+// Aktuelle Zeit aus der RTC lesen
+RtcDateTime now = Rtc.GetDateTime();
+
+// Falls die RTC-Zeit vor der Kompilierzeit liegt, zur Sicherheit aktualisieren
+if (now < compiled) {
+Serial.println("RTC is older than compile time, updating RTC.");
+Rtc.SetDateTime(compiled);
+} else if (now > compiled) {
+Serial.println("RTC is newer than compile time (this is fine).");
+} else {
+Serial.println("RTC time equals compile time (unüblich, aber OK).");
+}
+
+// Square-Wave-Pin der DS1307 deaktivieren (Low-Pegel)
+Rtc.SetSquareWavePin(DS1307SquareWaveOut_Low);
+}
+
+// -------------------------
+// setup() – wird einmal beim Start ausgeführt
+// -------------------------
+void setup()
+{
+// NeoPixel initialisieren
+pixels.begin(); // Interne Initialisierung des LED-Streifens
+pixels.setBrightness(BRIGHTNESS); // Standardhelligkeit setzen
+pixels.show(); // Alle LEDs ausschalten (Buffer auf die Hardware übertragen)
+
+// RTC initialisieren
+initRtc();
+}
+
+// -------------------------
+// loop() – wird in Endlosschleife ausgeführt
+// -------------------------
+void loop()
+{
+// Prüfen, ob die RTC-Zeit gültig ist
+if (!Rtc.IsDateTimeValid()) {
+if (Rtc.LastError() != 0) {
+// Kommunikationsproblem über I2C
+Serial.print("RTC communications error = ");
+Serial.println(Rtc.LastError());
+} else {
+// Zeit ist ungültig (z.B. Batterieproblem)
+Serial.println("RTC lost confidence in the DateTime!");
+}
+}
+
+// Aktuelle Zeit aus der RTC holen
+RtcDateTime now = Rtc.GetDateTime();
+
+// Datum/Zeit im seriellen Monitor anzeigen
+printDateTime(now);
+Serial.print(" ");
+
+// LED-Streifen entsprechend der aktuellen Uhrzeit aktualisieren
+clearStrip(); // alle LEDs löschen
+
+// Stunden, Minuten, Sekunden als Zahlen holen
+uint8_t hour = now.Hour(); // 0–23
+uint8_t minute = now.Minute(); // 0–59
+uint8_t second = now.Second(); // 0–59
+
+// Ziffern in Einer- und Zehnerstellen zerlegen
+uint8_t secOnes = second % 10;
+uint8_t secTens = second / 10;
+
+uint8_t minOnes = minute % 10;
+uint8_t minTens = minute / 10;
+
+uint8_t hourOnes = hour % 10;
+uint8_t hourTens = hour / 10;
+
+// Debug-Ausgabe der Ziffern
+Serial.print("H=");
+Serial.print(hourTens);
+Serial.print(hourOnes);
+Serial.print(" M=");
+Serial.print(minTens);
+Serial.print(minOnes);
+Serial.print(" S=");
+Serial.print(secTens);
+Serial.print(secOnes);
+
+Serial.println();
+
+// Sekunden-Säulen zeichnen
+drawDigitColumn(SEC_ONES_START, SEC_ONES_HEIGHT, secOnes);
+drawDigitColumn(SEC_TENS_START, SEC_TENS_HEIGHT, secTens);
+
+// Minuten-Säulen zeichnen
+drawDigitColumn(MIN_ONES_START, MIN_ONES_HEIGHT, minOnes);
+drawDigitColumn(MIN_TENS_START, MIN_TENS_HEIGHT, minTens);
+
+// Stunden-Säulen zeichnen
+drawDigitColumn(HOUR_ONES_START, HOUR_ONES_HEIGHT, hourOnes);
+drawDigitColumn(HOUR_TENS_START, HOUR_TENS_HEIGHT, hourTens);
+
+// Rote Trenner-LEDs zeichnen (blinken)
+drawSeparator(SEP_SEC_MIN_IDX, blinkSpeedMs);
+drawSeparator(SEP_MIN_HOUR_IDX, blinkSpeedMs);
+
+// Neue LED-Daten an den Streifen senden
+pixels.show();
+
+// Kurze Pause, um die CPU etwas zu entlasten
+delay(10);
 }
