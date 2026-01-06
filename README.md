@@ -4,7 +4,7 @@ Nachbau des digitalen **Lichtzeitpegels** des Düsseldorfer Rheinturms mit **WS2
 
 Dieses Projekt ist ein eigenständiger Nachbau mit eigener Implementierung und Dokumentation, funktional inspiriert von öffentlich beschriebenen Projekten (siehe Quellen).
 
-<img src="Unbenannt.jpg">
+<img src="Unbenannt.jpg"><br><small>Bild Notiz, da ich keinen 1000er Elko hatte, habe ich 4 470er eingesetzt</small>
 
 ---
 
