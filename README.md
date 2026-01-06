@@ -1,230 +1,192 @@
-# Arduino Rheinturm Lichtpegel Uhr
+# Arduino Rheinturm Lichtzeitpegel Uhr
 
-Nachbau des digitalen Lichtzeitpegels des Düsseldorfer Rheinturms mit WS2812-LEDs und DS1307-RTC
+Nachbau des digitalen **Lichtzeitpegels** des Düsseldorfer Rheinturms mit **WS2812B-LEDs (60 LEDs)**, **Arduino UNO** und **RTC (DS3231/DS1307)**.
 
-## Übersicht
+Dieses Projekt ist ein eigenständiger Nachbau mit eigener Implementierung und Dokumentation, funktional inspiriert von öffentlich beschriebenen Projekten (siehe Quellen).
 
-Dieses Projekt bildet den berühmten **Lichtzeitpegel des Düsseldorfer Rheinturms** mithilfe eines Arduino und adressierbarer LEDs nach. Die Uhr zeigt die Zeit vertikal in **dezimale Einzelstellen** (Stunden, Minuten, Sekunden), getrennt durch rote Trennlampen.
+---
 
-Das Projekt basiert funktional auf dem öffentlich beschriebenen Vorbildprojekt von **StartHardware.org (Stefan Hermann)**.
-Diese Dokumentation erläutert Schaltung, Aufbau, Funktionsprinzip, benötigte Komponenten und die Softwarelogik in einer zusammenhängenden, klar strukturierten Form.
+## Überblick
+
+Die Uhr zeigt die Zeit vertikal in **Dezimalstellen** (Stunden, Minuten, Sekunden) und visualisiert jede Stelle als **unäre Balkenanzeige**:
+„So viele Bullaugen leuchten, wie der jeweilige Ziffernwert angibt.“
+
+Zusätzlich gibt es:
+
+* **Orange Trenner-Leuchten** (Grundglimmen + Akzent bei voller Minute/Stunde)
+* **Rotes Funkfeuer** (blinkend)
 
 ---
 
 ## Funktionsprinzip
 
-Die Rheinturmuhr teilt die Uhrzeit in ihre Dezimalstellen und visualisiert jede Stelle durch eine **stacked unary representation**:
+Beispiel **23:19:04**
 
-Beispiel:
-**23:19:04 →**
+| Stelle          | Wert | Darstellung |
+| --------------- | ---: | ----------- |
+| Sekunden Einer  |    4 | 4/9 LEDs an |
+| Sekunden Zehner |    0 | 0/5 LEDs an |
+| Minuten Einer   |    9 | 9/9 LEDs an |
+| Minuten Zehner  |    1 | 1/5 LEDs an |
+| Stunden Einer   |    3 | 3/9 LEDs an |
+| Stunden Zehner  |    2 | 2/2 LEDs an |
 
-Von unten nach oben:
+**Trenner (orange):**
 
-| Abschnitt         | Anzeige    |
-| ----------------- | ---------- |
-| Sekunden (Einer)  | 4 Leuchten |
-| Sekunden (Zehner) | 0 Leuchten |
-| Trennleuchte      | Rot        |
-| Minuten (Einer)   | 9 Leuchten |
-| Minuten (Zehner)  | 1 Leuchte  |
-| Trennleuchte      | Rot        |
-| Stunden (Einer)   | 3 Leuchten |
-| Stunden (Zehner)  | 2 Leuchten |
+* glimmen immer schwach
+* **volle Minute (s == 0):** alle Trenner kurz hell
+* **volle Stunde (m == 0):** Stunden-Trenner eine Minute lang hell
 
-Zwischen den Blöcken befinden sich unbenutzte LEDs sowie die roten Trenner.
+**Funkfeuer (rot):**
 
----
-
-## Komponentenliste (BOM – Bill of Materials)
-
-| Komponente           | Menge          | Beschreibung                                 |
-| -------------------- | -------------- | -------------------------------------------- |
-| Arduino Uno          | 1              | Mikrocontroller für die Steuerung            |
-| WS2812B LED-Streifen | 1× 51 LEDs     | Mindestanzahl: 51 LEDs                       |
-| DS1307 RTC-Modul     | 1              | Echtzeituhr mit I²C                          |
-| Elko 1000 µF / 16 V  | 1              | Stützkondensator an der 5V-Versorgung        |
-| Widerstand 300–500 Ω | 1              | Serienwiderstand für das Datensignal         |
-| 5 V Netzteil         | ≥3 A empfohlen | Versorgung der LEDs                          |
-| Jumper-Kabel         | diverse        | Aufbau auf Breadboard oder Direktverdrahtung |
+* blinkt **1 Hz** synchron zur Sekunde
 
 ---
 
-## Schaltung / Verkabelung
+## Teileliste (BOM)
 
-### 1. Real Time Clock (DS1307)
+| Komponente           |      Menge | Hinweis                                 |
+| -------------------- | ---------: | --------------------------------------- |
+| Arduino Uno          |          1 | Steuerung                               |
+| WS2812B LED Strip    | 1× 60 LEDs | 1 m / 60 LEDs                           |
+| RTC Modul            |          1 | **DS3231 empfohlen**, DS1307 kompatibel |
+| Netzteil 5V          |          1 | **≥ 3A empfohlen**                      |
+| Elko 1000 µF / ≥ 10V |          1 | zwischen 5V/GND am Strip-Eingang        |
+| Widerstand 330–470 Ω |          1 | in Reihe in die Datenleitung (DIN)      |
+| Jumper-Kabel         |    diverse | je nach Aufbau                          |
 
-| DS1307 | Arduino Uno |
-| ------ | ----------- |
-| SDA    | A4          |
-| SCL    | A5          |
-| VCC    | 5V          |
-| GND    | GND         |
-
-> Hinweis: Der DS1307 benötigt eine **CR2032-Batterie**, damit die Zeit im stromlosen Zustand gespeichert bleibt.
+**Bezugsquelle (meine Bestellung):**
+roboter-bausatz.de: [https://www.roboter-bausatz.de/](https://www.roboter-bausatz.de/) ([Roboter-Bausatz.de][1])
 
 ---
 
-### 2. WS2812B LED-Streifen
+## Verkabelung
 
-| LED-Streifen | Arduino / Netzteil                            |
-| ------------ | --------------------------------------------- |
-| +5V          | 5V Netzteil                                   |
-| GND          | Gemeinsames GND (Netzteil + Arduino!)         |
-| DIN          | Arduino Pin 6 über 300–500 Ω Serienwiderstand |
+### RTC (I²C) an Arduino UNO
 
-### 3. Stützkondensator
+| RTC Pin | Arduino Uno |
+| ------- | ----------- |
+| SDA     | A4          |
+| SCL     | A5          |
+| VCC     | 5V          |
+| GND     | GND         |
 
-Zwischen **+5V** und **GND** des LED-Streifens:
+Hinweis:
 
-```
-+5V ----||---- GND
-         1000 µF Elko
-```
+* DS1307 benötigt typischerweise eine CR2032, damit die Zeit stromlos erhalten bleibt.
+* DS3231 ist in der Praxis deutlich genauer/stabiler.
 
-Polung beachten (– an GND).
+### WS2812B Strip
+
+| Strip | Arduino / Netzteil                                      |
+| ----- | ------------------------------------------------------- |
+| +5V   | +5V vom Netzteil                                        |
+| GND   | GND vom Netzteil **und** Arduino-GND (gemeinsame Masse) |
+| DIN   | Arduino **D6** über **330–470 Ω**                       |
+
+**Stützkondensator (empfohlen):**
+
+* Elko **1000 µF** direkt am Strip-Eingang zwischen **+5V** und **GND** (Polung beachten).
 
 ---
 
 ## Stromversorgung
 
-Jede WS2812B kann bis zu **60 mA** aufnehmen.
-51 LEDs → maximal ca. **3.06 A**.
+WS2812B kann pro LED theoretisch bis zu **60 mA** ziehen.
+60 LEDs → theoretisch **3,6 A** bei Vollweiß.
 
-Ein **stabilisiertes 5-V-Netzteil mit ≥3 A** wird empfohlen.
+In diesem Projekt wird die Helligkeit softwareseitig begrenzt (**~30%**), daher reicht ein **5V/3A Netzteil** in der Praxis meist aus.
 
-**GND vom Arduino und GND des Netzteils müssen verbunden werden**, damit das Datensignal ein gemeinsames Bezugspotenzial hat.
+Wichtig:
 
----
-
-## Software – Bibliotheken
-
-Über **Sketch → Bibliothek verwalten** installieren:
-
-1. **Adafruit NeoPixel**
-2. **RTC by Makuna**
-3. **Wire (Standardbibliothek)**
+* **Arduino-GND und Netzteil-GND müssen verbunden sein**, sonst ist das Datensignal instabil.
 
 ---
 
-## Softwareprinzip (funktionsorientierte Erklärung)
+## Software / Bibliotheken
 
-Die Software gliedert sich in folgende Schritte:
+Arduino IDE → **Sketch → Bibliothek einbinden → Bibliotheken verwalten**
 
-1. **Initialisierung der RTC**
+Benötigt:
 
-   * Kommunikation prüfen
-   * Zeit abrufen
-   * Im Fehlerfall: RTC-Zeit auf Kompilierzeit setzen
+1. **FastLED**
+2. **RTClib (Adafruit)**
+3. **Wire** (Standard)
 
-2. **Generieren der LED-Zeitstruktur**
+Hinweis RTC-Typ:
 
-   * Sekunde, Minute, Stunde werden in Einer- und Zehnerstelle zerlegt
-   * LED-Indexbereiche exakt den Abschnitten zugeordnet
-   * LED-Muster über Arrays umgesetzt
-     (0 = aus, 1 = weiß, 2 = Abstand, 3 = Trennleuchte rot)
-
-3. **Ausgabe der Farben**
-
-   * WS2812-Farbwerte setzen
-   * Rote Trenner optional blinkend (per millis())
+* Standard im Code: `RTC_DS3231`
+* Wenn du DS1307 nutzt: im Code auf `RTC_DS1307` umstellen.
 
 ---
 
-## LED-Indexbelegung (Schema 51 LEDs)
+## LED-Mapping (60 LEDs, LED0 unten → LED59 oben)
 
-Von **unten (Index 0)** nach oben **(Index 50)**:
+Diese Version bildet das Original sehr nah nach.
+Um oben wieder **5 Bullaugen** zu ermöglichen, nutzen wir je Funkfeuer nur **1 LED**.
 
-| Bereich           | Index | Funktion               |
-| ----------------- | ----- | ---------------------- |
-| Sekunden – Einer  | 0–9   | LED 0 = niedrigste LED |
-| Sekunden – Zehner | 10–15 | Zehnerdarstellung      |
-| Abstand           | 16    | unbeleuchtet           |
-| Minuten – Einer   | 17–26 | Minuten-Einer          |
-| Minuten – Zehner  | 27–32 | Minuten-Zehner         |
-| Abstand           | 33    | unbeleuchtet           |
-| Stunden – Einer   | 34–42 | Stunden-Einer          |
-| Stunden – Zehner  | 43–50 | Stunden-Zehner         |
-
-Im Code werden zur besseren Formatierung zusätzliche Abstandswerte verwendet.
+| Bereich          | Index | Länge | Funktion / Farbe      |
+| ---------------- | ----- | ----: | --------------------- |
+| Dummy unten      | 0–10  |    11 | gelb (gedimmt)        |
+| Sekunden Einer   | 11–19 |     9 | warmweiß (unär)       |
+| Trenner Sekunden | 20    |     1 | orange (dim + Akzent) |
+| Sekunden Zehner  | 21–25 |     5 | warmweiß (unär)       |
+| Funkfeuer 1      | 26    |     1 | rot blinkend          |
+| Minuten Einer    | 27–35 |     9 | warmweiß (unär)       |
+| Trenner Minuten  | 36    |     1 | orange (dim + Akzent) |
+| Minuten Zehner   | 37–41 |     5 | warmweiß (unär)       |
+| Funkfeuer 2      | 42    |     1 | rot blinkend          |
+| Stunden Einer    | 43–51 |     9 | warmweiß (unär)       |
+| Trenner Stunden  | 52    |     1 | orange (dim + Akzent) |
+| Stunden Zehner   | 53–54 |     2 | warmweiß (unär)       |
+| Dummy oben       | 55–59 |     5 | gelb (gedimmt)        |
 
 ---
 
 ## Installation & Upload
 
-1. Arduino Uno anschließen
-2. RTC-Batterie einsetzen
+1. RTC-Batterie einsetzen (falls DS1307/DS3231-Modul Batteriefach hat)
+2. Verkabelung herstellen (gemeinsame Masse!)
 3. Bibliotheken installieren
 4. Sketch öffnen
-5. Board & Port auswählen
+5. Board/Port auswählen
 6. Upload durchführen
-7. Serielle Konsole öffnen (115200 Baud) zur Kontrolle
 
-Die Uhrzeit wird bei jedem Start automatisch angezeigt.
+Optional:
 
----
-
-## Troubleshooting (häufige Fehlerquellen)
-
-### 1. Obere LEDs bleiben dunkel
-
-→ WS2812-Datenstörung
-
-* schlechter DIN-Kontakt
-* keine gemeinsame Masse
-* fehlender oder falscher Serienwiderstand
-* zu lange Datenleitung
-
-### 2. Farben verschoben, LED reagiert falsch
-
-→ Timingfehler
-
-* Streifen ist kein WS2812B-kompatibler Typ
-* SK6812 kann funktionieren, aber nicht immer zuverlässig
-* Datenleitung zu lang → kürzen
-
-### 3. RTC zeigt falsche Zeit
-
-* Batterie leer / fehlt
-* DS1307 ist empfindlich gegenüber Spannungsunterbrechungen
-* DS3231 als hochwertigere Alternative möglich
-
-### 4. Alle LEDs leuchten weiß
-
-→ Datenleitung verliert Signal vollständig
-
-* GND fehlt
-* Netzteilinstabil
-* Data-Pin falsch verdrahtet
+* Wenn RTC „lost power“ meldet, setzt der Sketch die Zeit auf die Compile-Zeit.
 
 ---
 
-## Erweiterungsmöglichkeiten
+## Troubleshooting
 
-* NTP-Zeitsynchronisation mit ESP8266/ESP32
-* größere LED-Zahl für maßstäbliche Modelle
-* Plexiglaszylinder als Turmschaft
-* RGB-Animationen
-* DCF77-Zeitbasis
+**1) Nichts leuchtet**
+
+* DIN am falschen Strip-Ende (DOUT statt DIN)
+* keine gemeinsame Masse (Arduino-GND nicht am Netzteil/Strip-GND)
+* Datenpin falsch (Code nutzt D6)
+* Strip bekommt keine 5V
+
+**2) Flackern/Resets**
+
+* Netzteil zu schwach / Leitungen zu dünn
+* Elko fehlt
+* ggf. zusätzliche Einspeisung am Strip-Ende („Power Injection“)
+
+**3) RTC wird nicht erkannt**
+
+* SDA/SCL vertauscht
+* falscher RTC-Typ im Code (DS3231 vs DS1307)
+* VCC/GND nicht korrekt
 
 ---
 
-## Lizenzhinweis
+## Lizenz
 
-Dieses Projekt basiert funktional auf einer öffentlich beschriebenen Anleitung von **StartHardware.org (Stefan Hermann)**.
-
-Dies ist eine **eigene technische Dokumentation**, die:
-
-* keine Textteile kopiert
-* keine urheberrechtlich geschützten Originalpassagen verwendet
-* keine nicht lizenzierte Codekopie enthält
-
-Der Originalcode ist urheberrechtlich geschützt und wird daher **nicht in diese README eingebettet**, kann aber über die Originalquelle bezogen werden.
+MIT License – siehe `LICENSE`.
 
 ---
 
-## Quellen / Referenzen
-
-* StartHardware.org – Arduino Rheinturm-Uhr
-* WS2812B Datasheet
-* DS1307 Datasheet
-* Adafruit NeoPixel Best Practices
+[1]: https://www.roboter-bausatz.de/"Roboter Bausatz, 3D-Drucker und DIY- Elektronik Shop in ..."
+[2]: https://starthardware.org/arduino-rheinturm-lichtzeitpegel/"Arduino Rheinturm –Lichtzeitpegel - StartHardware" Inspiration
+[3]: https://de.wikipedia.org/wiki/Lichtzeitpegel"Lichtzeitpegel"
