@@ -56,7 +56,7 @@ Beispiel **23:19:04**
 | Jumper-Kabel         |    diverse | je nach Aufbau                          |
 
 **Bezugsquelle (meine Bestellung):**
-roboter-bausatz.de: [https://www.roboter-bausatz.de/](https://www.roboter-bausatz.de/) ([Roboter-Bausatz.de][1])
+roboter-bausatz.de: [https://www.roboter-bausatz.de/](https://www.roboter-bausatz.de/)
 
 ---
 
@@ -187,6 +187,6 @@ MIT License – siehe `LICENSE`.
 
 ---
 
-[1]: https://www.roboter-bausatz.de/"Roboter Bausatz, 3D-Drucker und DIY- Elektronik Shop in ..."
-[2]: https://starthardware.org/arduino-rheinturm-lichtzeitpegel/"Arduino Rheinturm –Lichtzeitpegel - StartHardware" Inspiration
+[1]: https://www.roboter-bausatz.de/"Roboter Bausatz, 3D-Drucker und DIY- Elektronik Shop in ..."<br>
+[2]: https://starthardware.org/arduino-rheinturm-lichtzeitpegel/"Arduino Rheinturm –Lichtzeitpegel - StartHardware" Inspiration<br>
 [3]: https://de.wikipedia.org/wiki/Lichtzeitpegel"Lichtzeitpegel"
