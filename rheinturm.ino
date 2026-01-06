@@ -1,296 +1,309 @@
-#include <Adafruit_NeoPixel.h>   // Bibliothek für NeoPixel-LEDs
-#include <Wire.h>                // I2C-Bibliothek für die RTC
-#include <RtcDS1307.h>           // RTC-Bibliothek (Makuna)
+/*
+  ==============================================================================
+  Rheinturm-Uhr (Original-Logik) – 60 LEDs (WS2812B) + Arduino UNO + RTC
+  Version: 1.0.1
+  ==============================================================================
+  GitHub-ready Single-File Sketch (Arduino IDE)
 
-RtcDS1307<TwoWire> Rtc(Wire);    // RTC-Objekt, das den I2C-Bus verwendet
+  Projekt:
+    Rheinturm-Lichtzeituhr (Lichtzeitpegel) als NeoPixel/WS2812B-Umsetzung.
+    Anzeige basiert auf unärer Darstellung der Uhrzeit (Stunden/Minuten/Sekunden),
+    ergänzt durch Trenner-Animation und Funkfeuer-Blinken.
 
-// -------------------------
-// LED-Konfiguration
-// -------------------------
-#define LED_PIN    6             // Datenpin, an den der NeoPixel-Streifen angeschlossen ist
-#define LED_COUNT  51            // Anzahl der LEDs im Streifen
+  Autor:
+    Marcus Dziersan
 
-// NeoPixel-Objekt: Anzahl LEDs, Pin, Farbordnung + Protokollfrequenz
-Adafruit_NeoPixel pixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+  Lizenz:
+    MIT License
 
-// Helligkeit der LEDs (0–255)
-const uint8_t BRIGHTNESS = 50;   // 50 ist etwa 1/5 der maximalen Helligkeit
+    Copyright (c) 2026 Marcus Dziersan
 
-// Blinkgeschwindigkeit für die roten Trenner-LEDs in Millisekunden
-// Kleinere Werte → schnelleres Blinken, 0 oder 1 → faktisch immer an
-int blinkSpeedMs = 1000;
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-// -------------------------
-// Layout des LED-Streifens
-// -------------------------
-//
-// Wir teilen die 51 LEDs in Segmente ein:
-//
-// -  0 bis  9  : Sekunden-Einer (10 LEDs)
-// - 10 bis 15  : Sekunden-Zehner (6 LEDs)
-// - 16         : Trenner Sekunden/Minuten (rote LED)
-// - 17 bis 26  : Minuten-Einer (10 LEDs)
-// - 27 bis 32  : Minuten-Zehner (6 LEDs)
-// - 33         : Trenner Minuten/Stunden (rote LED)
-// - 34 bis 43  : Stunden-Einer (10 LEDs)
-// - 44 bis 50  : Stunden-Zehner (7 LEDs, gebraucht werden max. 3)
-//
-// Das ist kein 1:1-Layout des Originalprojekts, aber funktional sehr ähnlich.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
 
-const uint8_t SEC_ONES_START      = 0;
-const uint8_t SEC_ONES_HEIGHT     = 10;
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
 
-const uint8_t SEC_TENS_START      = 10;
-const uint8_t SEC_TENS_HEIGHT     = 6;
+  ------------------------------------------------------------------------------
+  1) Features (v1.0.0)
+  ------------------------------------------------------------------------------
+  - 60-LED Layout nach Rheinturm-Logik (62 Bullaugen adaptiert auf 60 LEDs)
+  - Unäre Zeitanzeige:
+      * Sekunden: 9 Einer + 5 Zehner
+      * Minuten : 9 Einer + 5 Zehner
+      * Stunden : 9 Einer + 2 Zehner
+  - Trenner-Animation (orange):
+      * Grundglimmen immer
+      * Akzent bei voller Minute (s == 0): alle Trenner kurz hell
+      * Akzent bei voller Stunde (m == 0): Stunden-Trenner 1 Minute hell
+  - Funkfeuer (rot blinkend, 1 Hz) mit je 1 LED (gesparte LEDs -> oben wieder 5 Bullaugen)
+  - Warmweiß-Farbton für die Zeit
+  - Helligkeitslimit (~30%) + optionales Power-Limit (FastLED)
 
-const uint8_t SEP_SEC_MIN_IDX     = 16;   // rote Trenner-LED zwischen Sekunden und Minuten
+  ------------------------------------------------------------------------------
+  2) Hardware & Verdrahtung
+  ------------------------------------------------------------------------------
+  Benötigt:
+    - Arduino UNO
+    - WS2812B/NeoPixel LED Strip mit 60 LEDs
+    - RTC-Modul (DS3231 empfohlen; DS1307 möglich)
+    - 5V Netzteil (empfohlen: 5V / 3A)
+    - 330 Ohm Widerstand (Datenleitung, in Reihe)
+    - Elko z.B. 1000 µF (zwischen +5V und GND nahe Strip-Eingang; empfohlen)
 
-const uint8_t MIN_ONES_START      = 17;
-const uint8_t MIN_ONES_HEIGHT     = 10;
+  Anschlüsse (WS2812B / NeoPixel):
+    - Netzteil +5V  -> Strip 5V (bei dir: weiß)
+    - Netzteil GND  -> Strip GND (bei dir: braun)
+    - Arduino GND   -> Strip GND (gemeinsame Masse ist Pflicht!)
+    - Arduino D6    -> 330 Ohm -> Strip DIN (bei dir: grün)
 
-const uint8_t MIN_TENS_START      = 27;
-const uint8_t MIN_TENS_HEIGHT     = 6;
+  RTC am Arduino UNO (I²C):
+    - RTC VCC -> UNO 5V
+    - RTC GND -> UNO GND
+    - RTC SDA -> UNO A4
+    - RTC SCL -> UNO A5
 
-const uint8_t SEP_MIN_HOUR_IDX    = 33;   // rote Trenner-LED zwischen Minuten und Stunden
+  Hinweise:
+    - Achte auf die Pfeilrichtung des Strips: Daten müssen an DIN rein.
+    - Bei Flackern/Reset: zusätzliches Einspeisen (Power-Injection) am Strip-Ende kann helfen.
+    - Power-Limit ist konservativ gesetzt (2500 mA) und kann angepasst werden.
 
-const uint8_t HOUR_ONES_START     = 34;
-const uint8_t HOUR_ONES_HEIGHT    = 10;
+  ------------------------------------------------------------------------------
+  3) 60-LED Mapping (LED0 unten -> LED59 oben)
+  ------------------------------------------------------------------------------
+  Farben:
+    - Zeit (C_TIME)      : warmweiß (RGB-Mix)
+    - Dummies (C_DUMMY)  : gedimmt gelb (Bullaugen ohne Funktion)
+    - Trenner (C_SEP_*)  : orange (dim + Akzent)
+    - Funkfeuer (C_BEACON): rot blinkend (1 Hz)
 
-const uint8_t HOUR_TENS_START     = 44;
-const uint8_t HOUR_TENS_HEIGHT    = 7;    // reicht für 0–2
+  Segmentaufteilung:
+    0-10   unten "ohne Funktion" (11)   -> C_DUMMY
 
-// -------------------------
-// Hilfsfunktionen: LEDs
-// -------------------------
+    11-19  Sekunden Einer (9)           -> unär, C_TIME
+    20     Trenner Sekunden (1)         -> C_SEP_DIM / C_SEP_HI
+    21-25  Sekunden Zehner (5)          -> unär (0..5), C_TIME
+    26     Funkfeuer 1 (1)              -> blink rot (1 Hz)
 
-// Setzt alle LEDs erstmal auf "aus"
-void clearStrip()
-{
-    // interne Puffer der NeoPixel-Bibliothek werden auf schwarz gesetzt
-    pixels.clear();
+    27-35  Minuten Einer (9)            -> unär, C_TIME
+    36     Trenner Minuten (1)          -> C_SEP_DIM / C_SEP_HI
+    37-41  Minuten Zehner (5)           -> unär (0..5), C_TIME
+    42     Funkfeuer 2 (1)              -> blink rot (1 Hz)
+
+    43-51  Stunden Einer (9)            -> unär, C_TIME
+    52     Trenner Stunden (1)          -> C_SEP_DIM / C_SEP_HI
+    53-54  Stunden Zehner (2)           -> unär (0..2), C_TIME
+
+    55-59  oben "ohne Funktion" (5)     -> C_DUMMY
+
+  ------------------------------------------------------------------------------
+  4) Unär-Funktion (Lichtzeitpegel)
+  ------------------------------------------------------------------------------
+  setUnary(range, value):
+    - value = Anzahl LEDs, die von unten innerhalb der Range leuchten.
+    - Der Rest bleibt aus.
+    - value wird auf Range-Länge begrenzt.
+
+  Beispiel: Minuten 34
+    - Zehner (3) -> 3/5 LEDs an
+    - Einer  (4) -> 4/9 LEDs an
+
+  ------------------------------------------------------------------------------
+  5) Build / Dependencies
+  ------------------------------------------------------------------------------
+  Arduino IDE:
+    - Installiere Bibliotheken:
+        * FastLED (Daniel Garcia u.a.)
+        * RTClib (Adafruit)
+
+  RTC-Typ:
+    - Standard: RTC_DS3231
+    - Für DS1307:
+        * RTC_DS1307 rtc; verwenden
+        * ggf. rtc.lostPower() Verhalten je Modul prüfen
+
+  ------------------------------------------------------------------------------
+  6) Konfiguration (häufige Anpassungen)
+  ------------------------------------------------------------------------------
+  - BRIGHTNESS: globale Helligkeit (0..255)
+  - C_TIME: Warmweiß-Ton nach Geschmack
+  - Power-Limit: setMaxPowerInVoltsAndMilliamps(5, 2500) -> je Netzteil/Strip anpassen
+
+  ==============================================================================
+*/
+
+#include <Wire.h>
+#include <RTClib.h>
+#include <FastLED.h>
+
+#define LED_PIN     6
+#define NUM_LEDS    60
+#define LED_TYPE    WS2812B
+#define COLOR_ORDER GRB
+
+CRGB leds[NUM_LEDS];
+
+/*
+  RTC-Auswahl:
+    - DS3231: RTC_DS3231 rtc;
+    - DS1307: RTC_DS1307 rtc;
+*/
+RTC_DS3231 rtc;
+
+// ~30% Helligkeit (255 * 0.30 ≈ 76.5)
+const uint8_t BRIGHTNESS = 77;
+
+// Farben
+const CRGB C_TIME    = CRGB(255, 150, 70); // warmweiß (deutlich warm)
+const CRGB C_BEACON  = CRGB::Red;          // Funkfeuer
+const CRGB C_DUMMY   = CRGB(40, 18, 0);    // Dummies (Bullaugen ohne Funktion)
+const CRGB C_SEP_DIM = CRGB(18, 6, 0);     // Trenner Grundglimmen
+const CRGB C_SEP_HI  = CRGB(255, 90, 0);   // Trenner Akzent
+
+// Range-Definition
+struct Range { uint8_t start; uint8_t len; };
+
+// Dummies
+const Range R_DUMMY_BOTTOM = {0, 11};
+const Range R_DUMMY_TOP    = {55, 5};
+
+// Sekunden
+const Range  R_S_U      = {11, 9};
+const uint8_t I_S_SEP   = 20;
+const Range  R_S_T      = {21, 5};
+const uint8_t I_BEACON1 = 26;
+
+// Minuten
+const Range  R_M_U      = {27, 9};
+const uint8_t I_M_SEP   = 36;
+const Range  R_M_T      = {37, 5};
+const uint8_t I_BEACON2 = 42;
+
+// Stunden
+const Range  R_H_U    = {43, 9};
+const uint8_t I_H_SEP = 52;
+const Range  R_H_T    = {53, 2};
+
+// Hilfsfunktion: Range komplett färben
+static inline void fillRange(const Range& r, const CRGB& c) {
+  for (uint8_t i = 0; i < r.len; i++) leds[r.start + i] = c;
 }
 
-// Zeichnet eine "Spalte" für eine Dezimalstelle (0–9)
-// startIndex: unterste LED der Spalte
-// maxHeight : maximale Anzahl LEDs, die diese Spalte besitzt
-// value     : Wert der Ziffer (z.B. 7 → 7 LEDs leuchten)
-void drawDigitColumn(uint8_t startIndex, uint8_t maxHeight, uint8_t value)
-{
-    // Begrenzen des Wertes auf die maximal mögliche Höhe
-    if (value > maxHeight) {
-        value = maxHeight;
-    }
-
-    // Alle LEDs der Spalte zunächst ausschalten
-    for (uint8_t i = 0; i < maxHeight; i++) {
-        uint8_t idx = startIndex + i;
-        if (idx < LED_COUNT) {
-            pixels.setPixelColor(idx, pixels.Color(0, 0, 0));
-        }
-    }
-
-    // Von unten nach oben "value" LEDs weiß einschalten
-    for (uint8_t i = 0; i < value; i++) {
-        uint8_t idx = startIndex + i;
-        if (idx < LED_COUNT) {
-            // Weißes Licht (RGB: 100, 100, 100)
-            pixels.setPixelColor(idx, pixels.Color(100, 100, 100));
-        }
-    }
+// Hilfsfunktion: unäre Darstellung
+static inline void setUnary(const Range& r, uint8_t value, const CRGB& onColor) {
+  if (value > r.len) value = r.len;
+  for (uint8_t i = 0; i < r.len; i++) {
+    leds[r.start + i] = (i < value) ? onColor : CRGB::Black;
+  }
 }
 
-// Zeichnet eine rote Trenner-LED, optional blinkend
-// index     : Position der Trenner-LED
-// blinkOnMs : Blinkperiode, z.B. 1000ms → 0,5s an, 0,5s aus
-void drawSeparator(uint8_t index, int blinkOnMs)
-{
-    if (index >= LED_COUNT) return; // Sicherheitsabfrage
+void setup() {
+  // I²C für RTC
+  Wire.begin();
 
-    if (blinkOnMs <= 1) {
-        // Blinken deaktiviert: LED dauerhaft rot
-        pixels.setPixelColor(index, pixels.Color(100, 0, 0));
-        return;
-    }
+  // LEDs
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(BRIGHTNESS);
 
-    // Aktuelle Zeit seit Start (Millisekunden)
-    unsigned long now = millis();
+  // Optional: konservatives Stromlimit (hilft bei 5V/3A)
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 2500);
 
-    // Einfache Rechteck-Blinklogik:
-    // In der ersten Hälfte des Intervalls → aus,
-    // in der zweiten Hälfte → rot an
-    if ((now % blinkOnMs) < (unsigned long)(blinkOnMs / 2)) {
-        // Phase 1: LED aus
-        pixels.setPixelColor(index, pixels.Color(0, 0, 0));
-    } else {
-        // Phase 2: LED rot
-        pixels.setPixelColor(index, pixels.Color(100, 0, 0));
-    }
+  FastLED.clear(true);
+
+  // RTC initialisieren
+  if (!rtc.begin()) {
+    // Wenn RTC nicht gefunden wird, stoppt der Sketch absichtlich,
+    // damit die Fehlersuche eindeutig bleibt (Verkabelung/Modultyp).
+    while (true) { delay(1000); }
+  }
+
+  // Optional: Uhrzeit setzen, falls RTC Strom verloren hat.
+  // Setzt auf Compile-Zeitpunkt. (PC-Uhr sollte korrekt sein.)
+  if (rtc.lostPower()) {
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
 }
 
-// -------------------------
-// Hilfsfunktionen: RTC
-// -------------------------
+void loop() {
+  // Zeit lesen
+  DateTime now = rtc.now();
+  const uint8_t h = now.hour();
+  const uint8_t m = now.minute();
+  const uint8_t s = now.second();
 
-// Gibt Datum und Uhrzeit auf der seriellen Schnittstelle aus
-void printDateTime(const RtcDateTime& dt)
-{
-    char buf[20]; // Puffer für Datum/Zeit-String
+  // Funkfeuer: 1 Hz (sekundengenau)
+  const bool beaconOn = (s % 2 == 0);
 
-    // Formatiert als "MM/TT/JJJJ hh:mm:ss"
-    snprintf_P(
-        buf,
-        sizeof(buf),
-        PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
-        dt.Month(),
-        dt.Day(),
-        dt.Year(),
-        dt.Hour(),
-        dt.Minute(),
-        dt.Second()
-    );
+  // Trenner-Akzentlogik:
+  // - volle Minute: alle Trenner kurz hell
+  // - volle Stunde: Stunden-Trenner eine Minute lang hell
+  const bool fullMinute = (s == 0);
+  const bool fullHour   = (m == 0);
 
-    Serial.print(buf);
-}
+  // Frame löschen
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
 
-// Initialisiert die RTC und stellt sicher, dass sie eine gültige Zeit hat
-void initRtc()
-{
-    Serial.begin(115200);  // Serielle Schnittstelle zum Debuggen
-    Wire.begin();          // I2C starten
+  // Dummies (unten/oben) setzen
+  fillRange(R_DUMMY_BOTTOM, C_DUMMY);
+  fillRange(R_DUMMY_TOP,    C_DUMMY);
 
-    Serial.print("Sketch compiled: ");
-    Serial.print(__DATE__);   // Kompilierdatum (Makro von der Toolchain)
-    Serial.print(" ");
-    Serial.println(__TIME__); // Kompilierzeit (Makro von der Toolchain)
+  // Zeit zerlegen
+  const uint8_t sU = s % 10;
+  const uint8_t sT = s / 10; // 0..5
 
-    Rtc.Begin();              // RTC-Bibliothek starten
+  const uint8_t mU = m % 10;
+  const uint8_t mT = m / 10; // 0..5
 
-    // Zeitobjekt mit Kompilierzeit erstellen
-    RtcDateTime compiled(__DATE__, __TIME__);
+  const uint8_t hU = h % 10;
+  const uint8_t hT = h / 10; // 0..2
 
-    // Prüfen, ob die RTC eine gültige Zeit kennt
-    if (!Rtc.IsDateTimeValid()) {
-        if (Rtc.LastError() != 0) {
-            // Wenn LastError != 0 ist, liegt ein I2C-Kommunikationsproblem vor
-            Serial.print("RTC communications error = ");
-            Serial.println(Rtc.LastError());
-        } else {
-            // Häufige Ursache: Batterie fehlt oder war leer
-            Serial.println("RTC has invalid DateTime, setting to compile time.");
-            Rtc.SetDateTime(compiled); // RTC auf Kompilierzeit setzen
-        }
-    }
+  // Unäranzeige (warmweiß)
+  setUnary(R_S_U, sU, C_TIME);
+  setUnary(R_S_T, sT, C_TIME);
 
-    // Falls die RTC noch nicht "läuft", jetzt starten
-    if (!Rtc.GetIsRunning()) {
-        Serial.println("RTC was not running, starting now.");
-        Rtc.SetIsRunning(true);
-    }
+  setUnary(R_M_U, mU, C_TIME);
+  setUnary(R_M_T, mT, C_TIME);
 
-    // Aktuelle Zeit aus der RTC lesen
-    RtcDateTime now = Rtc.GetDateTime();
+  setUnary(R_H_U, hU, C_TIME);
+  setUnary(R_H_T, hT, C_TIME);
 
-    // Falls die RTC-Zeit vor der Kompilierzeit liegt, zur Sicherheit aktualisieren
-    if (now < compiled) {
-        Serial.println("RTC is older than compile time, updating RTC.");
-        Rtc.SetDateTime(compiled);
-    } else if (now > compiled) {
-        Serial.println("RTC is newer than compile time (this is fine).");
-    } else {
-        Serial.println("RTC time equals compile time (unüblich, aber OK).");
-    }
+  // Trenner: Grundglimmen
+  leds[I_S_SEP] = C_SEP_DIM;
+  leds[I_M_SEP] = C_SEP_DIM;
+  leds[I_H_SEP] = C_SEP_DIM;
 
-    // Square-Wave-Pin der DS1307 deaktivieren (Low-Pegel)
-    Rtc.SetSquareWavePin(DS1307SquareWaveOut_Low);
-}
+  // Akzent bei voller Minute: alle Trenner kurz hell
+  if (fullMinute) {
+    leds[I_S_SEP] = C_SEP_HI;
+    leds[I_M_SEP] = C_SEP_HI;
+    leds[I_H_SEP] = C_SEP_HI;
+  }
 
-// -------------------------
-// setup() – wird einmal beim Start ausgeführt
-// -------------------------
-void setup()
-{
-    // NeoPixel initialisieren
-    pixels.begin();                  // Interne Initialisierung des LED-Streifens
-    pixels.setBrightness(BRIGHTNESS); // Standardhelligkeit setzen
-    pixels.show();                   // Alle LEDs ausschalten (Buffer auf die Hardware übertragen)
+  // Akzent bei voller Stunde: Stunden-Trenner eine Minute hell
+  if (fullHour) {
+    leds[I_H_SEP] = C_SEP_HI;
+  }
 
-    // RTC initialisieren
-    initRtc();
-}
+  // Funkfeuer (rot blinkend) – je Funkfeuer nur 1 LED
+  const CRGB b = beaconOn ? C_BEACON : CRGB::Black;
+  leds[I_BEACON1] = b;
+  leds[I_BEACON2] = b;
 
-// -------------------------
-// loop() – wird in Endlosschleife ausgeführt
-// -------------------------
-void loop()
-{
-    // Prüfen, ob die RTC-Zeit gültig ist
-    if (!Rtc.IsDateTimeValid()) {
-        if (Rtc.LastError() != 0) {
-            // Kommunikationsproblem über I2C
-            Serial.print("RTC communications error = ");
-            Serial.println(Rtc.LastError());
-        } else {
-            // Zeit ist ungültig (z.B. Batterieproblem)
-            Serial.println("RTC lost confidence in the DateTime!");
-        }
-    }
+  // Ausgabe
+  FastLED.show();
 
-    // Aktuelle Zeit aus der RTC holen
-    RtcDateTime now = Rtc.GetDateTime();
-
-    // Datum/Zeit im seriellen Monitor anzeigen
-    printDateTime(now);
-    Serial.print("  ");
-
-    // LED-Streifen entsprechend der aktuellen Uhrzeit aktualisieren
-    clearStrip();  // alle LEDs löschen
-
-    // Stunden, Minuten, Sekunden als Zahlen holen
-    uint8_t hour   = now.Hour();   // 0–23
-    uint8_t minute = now.Minute(); // 0–59
-    uint8_t second = now.Second(); // 0–59
-
-    // Ziffern in Einer- und Zehnerstellen zerlegen
-    uint8_t secOnes  = second % 10;
-    uint8_t secTens  = second / 10;
-
-    uint8_t minOnes  = minute % 10;
-    uint8_t minTens  = minute / 10;
-
-    uint8_t hourOnes = hour % 10;
-    uint8_t hourTens = hour / 10;
-
-    // Debug-Ausgabe der Ziffern
-    Serial.print("H=");
-    Serial.print(hourTens);
-    Serial.print(hourOnes);
-    Serial.print(" M=");
-    Serial.print(minTens);
-    Serial.print(minOnes);
-    Serial.print(" S=");
-    Serial.print(secTens);
-    Serial.print(secOnes);
-    Serial.println();
-
-    // Sekunden-Säulen zeichnen
-    drawDigitColumn(SEC_ONES_START, SEC_ONES_HEIGHT, secOnes);
-    drawDigitColumn(SEC_TENS_START, SEC_TENS_HEIGHT, secTens);
-
-    // Minuten-Säulen zeichnen
-    drawDigitColumn(MIN_ONES_START, MIN_ONES_HEIGHT, minOnes);
-    drawDigitColumn(MIN_TENS_START, MIN_TENS_HEIGHT, minTens);
-
-    // Stunden-Säulen zeichnen
-    drawDigitColumn(HOUR_ONES_START, HOUR_ONES_HEIGHT, hourOnes);
-    drawDigitColumn(HOUR_TENS_START, HOUR_TENS_HEIGHT, hourTens);
-
-    // Rote Trenner-LEDs zeichnen (blinken)
-    drawSeparator(SEP_SEC_MIN_IDX,    blinkSpeedMs);
-    drawSeparator(SEP_MIN_HOUR_IDX,   blinkSpeedMs);
-
-    // Neue LED-Daten an den Streifen senden
-    pixels.show();
-
-    // Kurze Pause, um die CPU etwas zu entlasten
-    delay(10);
+  // Kurze Pause: reicht für sauberes Blinken, hält CPU-Last klein
+  delay(20);
 }
