@@ -4,6 +4,8 @@ Nachbau des digitalen **Lichtzeitpegels** des Düsseldorfer Rheinturms mit **WS2
 
 Dieses Projekt ist ein eigenständiger Nachbau mit eigener Implementierung und Dokumentation, funktional inspiriert von öffentlich beschriebenen Projekten (siehe Quellen).
 
+<img src="unbenannt.jpg">
+
 ---
 
 ## Überblick
@@ -155,6 +157,8 @@ Um oben wieder **5 Bullaugen** zu ermöglichen, nutzen wir je Funkfeuer nur **1 
 Optional:
 
 * Wenn RTC „lost power“ meldet, setzt der Sketch die Zeit auf die Compile-Zeit.
+
+<img src="unbenannt1.jpg">
 
 ---
 
